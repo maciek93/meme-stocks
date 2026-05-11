@@ -1,0 +1,12 @@
+.env
+.venv/
+data/raw/
+data/prices/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+dist/
+*.egg-info/
+.DS_Store
+notebooks/.ipynb_checkpoints/

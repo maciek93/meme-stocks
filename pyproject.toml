@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "meme-stocks"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb>=0.10",
+    "polars>=0.20",
+    "praw>=7.7",
+    "yfinance>=0.2",
+    "vaderSentiment>=3.3",
+    "requests",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+ml = ["transformers>=4.40", "torch"]
+dev = ["pytest", "pytest-cov", "ruff"]
+
+[tool.ruff]
+line-length = 100
