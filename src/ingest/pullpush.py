@@ -23,8 +23,8 @@ SUBS_OF_INTEREST = [
     "smallstreetbets", "Superstonk", "options", "investing",
 ]
 PAGE_SIZE = 100
-# pullpush.io allows ~60 req/min; 1.1s between requests stays safely under
-REQUEST_DELAY = 1.1
+REQUEST_DELAY = 2.0   # base seconds between requests
+MAX_RETRIES = 6       # max attempts per page before giving up
 
 
 def _to_epoch(d: date) -> int:
@@ -33,9 +33,16 @@ def _to_epoch(d: date) -> int:
 
 def _get(endpoint: str, params: dict) -> list[dict]:
     url = f"{BASE_URL}/{endpoint}/"
-    resp = requests.get(url, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json().get("data", [])
+    for attempt in range(MAX_RETRIES):
+        resp = requests.get(url, params=params, timeout=30)
+        if resp.status_code == 429:
+            wait = REQUEST_DELAY * (2 ** attempt)   # 2s, 4s, 8s, 16s, 32s, 64s
+            print(f"\n  429 rate limit — waiting {wait:.0f}s (attempt {attempt + 1}/{MAX_RETRIES})...")
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+    raise RuntimeError(f"pullpush.io returned 429 after {MAX_RETRIES} retries. Try again later.")
 
 
 def fetch_submissions(
