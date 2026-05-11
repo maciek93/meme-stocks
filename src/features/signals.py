@@ -14,6 +14,7 @@ def compute_daily_features(mentions: pl.DataFrame) -> pl.DataFrame:
             pl.len().alias("mentions"),
             pl.col("author").n_unique().alias("unique_authors"),
             pl.col("score").sum().alias("upvote_sum"),
+            pl.col("sentiment").mean().alias("avg_sentiment"),
         ])
         .sort(["ticker", "date"])
     )
@@ -25,7 +26,7 @@ def compute_velocity(daily: pl.DataFrame, window: int = 7) -> pl.DataFrame:
     return (
         daily.with_columns(
             pl.col("mentions")
-              .rolling_mean(window_size=window)
+              .rolling_mean(window_size=window, min_periods=1)
               .over("ticker")
               .alias("mentions_rolling_mean")
         )

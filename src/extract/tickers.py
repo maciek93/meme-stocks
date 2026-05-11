@@ -3,6 +3,7 @@
 import re
 import polars as pl
 from pathlib import Path
+from src.extract.sentiment import vader_score
 
 
 # Common words that overlap with valid tickers — extend as needed
@@ -41,16 +42,24 @@ def extract_tickers(text: str, whitelist: set[str]) -> list[str]:
 
 def build_mention_table(df: pl.DataFrame, whitelist: set[str]) -> pl.DataFrame:
     """Input: posts/comments df with created_utc, author, body/title, score.
-    Output: rows of (ticker, date, author, score)."""
+    Output: rows of (ticker, date, author, score, sentiment)."""
     rows = []
     for row in df.iter_rows(named=True):
         text = (row.get("title", "") or "") + " " + (row.get("body", "") or "")
         date = str(pl.from_epoch([row["created_utc"]], time_unit="s")[0].date())
+        sentiment = vader_score(text)
         for ticker in extract_tickers(text, whitelist):
             rows.append({
                 "ticker": ticker,
                 "date": date,
                 "author": row.get("author", ""),
                 "score": row.get("score", 0),
+                "sentiment": sentiment,
             })
-    return pl.DataFrame(rows) if rows else pl.DataFrame({"ticker": [], "date": [], "author": [], "score": []})
+    return pl.DataFrame(rows) if rows else pl.DataFrame({
+        "ticker": pl.Series([], dtype=pl.Utf8),
+        "date": pl.Series([], dtype=pl.Utf8),
+        "author": pl.Series([], dtype=pl.Utf8),
+        "score": pl.Series([], dtype=pl.Int64),
+        "sentiment": pl.Series([], dtype=pl.Float64),
+    })

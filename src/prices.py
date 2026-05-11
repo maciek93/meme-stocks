@@ -2,8 +2,9 @@
 
 import yfinance as yf
 import polars as pl
+import pandas as pd
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 
 
 CACHE_DIR = Path(__file__).parent.parent / "data" / "prices"
@@ -25,10 +26,11 @@ def fetch_prices(ticker: str, start: date, end: date) -> pl.DataFrame:
 
     raw = yf.download(ticker, start=str(min(needed)), end=str(max(needed)), auto_adjust=True, progress=False)
     if raw.empty:
-        return existing or pl.DataFrame()
+        return existing if existing is not None else pl.DataFrame()
 
-    new_df = pl.from_pandas(raw.reset_index()).rename({"Date": "date", "Close": "close", "Volume": "volume"})
-    new_df = new_df.select(["date", "close", "volume"])
+    new_df = _parse_yfinance(raw)
+    if new_df.is_empty():
+        return existing if existing is not None else pl.DataFrame()
 
     combined = pl.concat([existing, new_df]) if existing is not None else new_df
     combined = combined.unique(subset=["date"]).sort("date")
@@ -36,12 +38,29 @@ def fetch_prices(ticker: str, start: date, end: date) -> pl.DataFrame:
     return _filter(combined, start, end)
 
 
+def _parse_yfinance(raw: pd.DataFrame) -> pl.DataFrame:
+    """Handle yfinance v1.x MultiIndex columns and return [date, close, volume]."""
+    df = raw.copy()
+    # Flatten MultiIndex columns: ('Close', 'AAPL') → 'close'
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [col[0].lower() for col in df.columns]
+    else:
+        df.columns = [c.lower() for c in df.columns]
+    df = df.reset_index()
+    # Index name may be 'Date' or 'date' or 'Datetime'
+    date_col = next((c for c in df.columns if c.lower() in ("date", "datetime")), None)
+    if date_col is None:
+        return pl.DataFrame()
+    df = df.rename(columns={date_col: "date"})
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    return pl.from_pandas(df[["date", "close", "volume"]])
+
+
 def _filter(df: pl.DataFrame, start: date, end: date) -> pl.DataFrame:
     return df.filter((pl.col("date") >= start) & (pl.col("date") <= end))
 
 
 def _date_range(start: date, end: date):
-    from datetime import timedelta
     d = start
     while d <= end:
         yield d
