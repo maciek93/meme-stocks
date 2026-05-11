@@ -18,6 +18,13 @@ def compute_daily_features(mentions: pl.DataFrame) -> pl.DataFrame:
         ])
         .sort(["ticker", "date"])
     )
+    # Derived features
+    daily = daily.with_columns([
+        (pl.col("mentions").cast(pl.Float64) / (pl.col("unique_authors").cast(pl.Float64) + 1e-6))
+            .alias("mentions_per_author"),
+        (pl.col("upvote_sum").cast(pl.Float64) / (pl.col("mentions").cast(pl.Float64) + 1e-6))
+            .alias("score_per_mention"),
+    ])
     return daily
 
 
@@ -33,6 +40,10 @@ def compute_velocity(daily: pl.DataFrame, window: int = 7) -> pl.DataFrame:
         .with_columns(
             (pl.col("mentions") / (pl.col("mentions_rolling_mean") + 1e-6))
             .alias("velocity")
+        )
+        .with_columns(
+            (pl.col("avg_sentiment") * pl.col("velocity"))
+            .alias("sentiment_x_velocity")
         )
     )
 

@@ -11,6 +11,7 @@ from src.backtest.metrics import summary
 
 RAW_DIR = Path(__file__).parent.parent / "data" / "raw"
 TICKERS_DIR = Path(__file__).parent.parent / "data" / "tickers"
+DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 def load_raw(raw_dir: Path, start: date, end: date, record_types: list[str] | None = None) -> pl.DataFrame:
@@ -42,12 +43,17 @@ def run(
     moon_pct: float = 0.20,
     velocity_threshold: float = 3.0,
     min_mentions: int = 50,
+    window: int = 7,
     backtest: bool = True,
+    use_model: bool = False,
+    save_results: Path | None = None,
 ) -> tuple[pl.DataFrame, dict]:
     """
     Full pipeline from raw Parquet files to backtest results.
 
     Returns (results_df, metrics_dict). If backtest=False, returns (signals_df, {}).
+    If use_model=True, adds signal_prob column via the trained logistic regression.
+    If save_results is a Path, writes the results DataFrame to Parquet there.
     """
     print(f"Loading raw data {start} → {end}...")
     df = load_raw(raw_dir, start, end)
@@ -64,8 +70,12 @@ def run(
 
     print(f"Found {len(mentions):,} mentions across {mentions['ticker'].n_unique()} tickers. Computing signals...")
     daily = compute_daily_features(mentions)
-    daily = compute_velocity(daily)
+    daily = compute_velocity(daily, window=window)
     signals = apply_signal(daily, velocity_threshold=velocity_threshold, min_mentions=min_mentions)
+
+    if use_model:
+        from src.model.predict import score_signals
+        signals = score_signals(signals)
 
     n_signals = signals.filter(pl.col("signal")).height
     print(f"{n_signals} signals fired.")
@@ -78,6 +88,11 @@ def run(
     if results.is_empty():
         print("No backtest results (no signals or no price data).")
         return results, {}
+
+    if save_results is not None:
+        save_results.parent.mkdir(parents=True, exist_ok=True)
+        results.write_parquet(save_results)
+        print(f"Results saved → {save_results}")
 
     metrics = summary(results)
     return results, metrics
