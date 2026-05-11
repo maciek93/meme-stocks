@@ -1,52 +1,26 @@
-"""Live Reddit collection via PRAW. Append to Parquet partitions."""
+"""
+Ongoing Reddit collection using pullpush.io (no API credentials required).
 
-import os
-import praw
-import polars as pl
-from datetime import datetime, timezone
+Fetches the last N days of submissions across target subreddits and appends
+to Parquet files in data/raw/.
+
+Run:
+    python -m src.ingest.reddit_live
+"""
+
+from datetime import date, timedelta
 from pathlib import Path
+from src.ingest.pullpush import fetch_and_save, SUBS_OF_INTEREST
+
+RAW_DIR = Path(__file__).parent.parent.parent / "data" / "raw"
 
 
-SUBS_OF_INTEREST = [
-    "wallstreetbets", "stocks", "pennystocks",
-    "smallstreetbets", "Superstonk", "options", "investing",
-]
+def collect(days_back: int = 3, subs: list[str] | None = None):
+    end = date.today()
+    start = end - timedelta(days=days_back)
+    fetch_and_save(RAW_DIR, start, end, subs=subs, record_type="submissions")
+    fetch_and_save(RAW_DIR, start, end, subs=subs, record_type="comments")
 
 
-def get_client() -> praw.Reddit:
-    return praw.Reddit(
-        client_id=os.environ["REDDIT_CLIENT_ID"],
-        client_secret=os.environ["REDDIT_CLIENT_SECRET"],
-        user_agent=os.environ["REDDIT_USER_AGENT"],
-    )
-
-
-def fetch_hot(reddit: praw.Reddit, sub: str, limit: int = 100) -> list[dict]:
-    rows = []
-    for post in reddit.subreddit(sub).hot(limit=limit):
-        rows.append({
-            "id": post.id,
-            "sub": sub,
-            "author": str(post.author),
-            "created_utc": int(post.created_utc),
-            "title": post.title,
-            "body": post.selftext,
-            "score": post.score,
-            "num_comments": post.num_comments,
-        })
-    return rows
-
-
-def collect_and_save(out_dir: Path):
-    reddit = get_client()
-    today = datetime.now(timezone.utc).strftime("%Y-%m")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for sub in SUBS_OF_INTEREST:
-        rows = fetch_hot(reddit, sub)
-        df = pl.DataFrame(rows)
-        path = out_dir / f"live_{sub}_{today}.parquet"
-        if path.exists():
-            existing = pl.read_parquet(path)
-            df = pl.concat([existing, df]).unique(subset=["id"])
-        df.write_parquet(path)
-        print(f"{sub}: {len(df)} posts saved")
+if __name__ == "__main__":
+    collect()
